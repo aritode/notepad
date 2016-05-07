@@ -1,5 +1,15 @@
 class Post
 
+  def self.post_types
+    # not the best way, will be corrected later
+    [Memo, Link, Task]
+  end
+
+  def self.create(type_index)
+    # выбрать из массива по индексу нужный класс и дёрнуть статический метод .new
+    return post_types[type_index].new
+  end
+
   def initialize
     @created_at = Time.now
     @text = nil
@@ -25,7 +35,6 @@ class Post
 
   def file_path
     current_path = File.dirname(__FILE__)
-
     file_name = @created_at.strftime("#{self.class.name}_%Y-%m-%d_%H-%M-%S.txt")
 
     return current_path + "/" + file_name

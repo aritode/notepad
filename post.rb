@@ -1,13 +1,63 @@
+require 'sqlite3'
+
 class Post
 
+  @@SQLITE_DB_FILE = 'notepad.sqlite'
+
   def self.post_types
-    # not the best way, will be corrected later
-    [Memo, Link, Task]
+    {'Memo' => Memo, 'Link' => Link, 'Task' => Task}
   end
 
-  def self.create(type_index)
-    # выбрать из массива по индексу нужный класс и дёрнуть статический метод .new
-    return post_types[type_index].new
+  def self.create(type)
+    return post_types[type].new
+  end
+
+  def self.find(limit, type, id)
+    db = SQLite3::Database.open(@@SQLITE_DB_FILE)
+
+    # 1. Конкретная запись
+    if !id.nil?
+      db.results_as_hash = true
+
+      result = db.execute("SELECT * FROM posts WHERE rowid = ?", id)
+      result = result[0] if result.is_a? Array
+
+      db.close
+
+      if result.empty?
+        puts "Такой id #{id} не найден в базе :("
+        return nil
+      else
+        post = create(result['type'])
+        post.load_data(result)
+
+        return post
+      end
+
+    else
+      # 2. Вернуть таблицу записей
+      db.results_as_hash = false
+
+      # Формируем запрос в базу с нужными условиями (на 1 месте в массиве стоит id)
+      query = "SELECT rowid, * FROM posts "
+
+      query += "WHERE type = :type " unless type.nil?       # :type - именованный placeholder
+      query += "ORDER by rowid DESC " # достает самые свежие записи, сортировка по убыванию
+
+      query += "LIMIT :limit " unless limit.nil?
+
+      statement = db.prepare(query)  # в качестве параметра - запрос, готовый к выполнению
+
+      statement.bind_param('type', type) unless type.nil?  # передаем параметры
+      statement.bind_param('limit', limit) unless limit.nil?
+
+      result = statement.execute!
+
+      statement.close
+      db.close
+
+      return result
+    end
   end
 
   def initialize
@@ -38,5 +88,38 @@ class Post
     file_name = @created_at.strftime("#{self.class.name}_%Y-%m-%d_%H-%M-%S.txt")
 
     return current_path + "/" + file_name
+  end
+
+  def save_to_db
+    db = SQLite3::Database.open(@@SQLITE_DB_FILE)
+    db.results_as_hash = true
+
+    db.execute(
+          "INSERT INTO posts (" +
+              to_db_hash.keys.join(',') +
+              ")" +
+              " VALUES (" +
+              ('?,' * to_db_hash.keys.size).chomp(',') + # (?, ?, ?)
+              ")",
+          to_db_hash.values
+    )
+
+    insert_row_id = db.last_insert_row_id
+
+    db.close
+
+    return insert_row_id
+  end
+
+  def to_db_hash
+    {
+        'Type' => self.class.name,
+        'created_at' => @created_at.to_s
+    }
+  end
+
+  # получает на вход хэш массив данных и должен заполнить свои поля
+  def load_data(data_hash)
+    @created_at = Time.parse(data_hash['created_at'])
   end
 end
